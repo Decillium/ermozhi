@@ -1,0 +1,74 @@
+[
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Erode",
+    "Commodity": "Turmeric",
+    "Variety": "Finger",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-20",
+    "Min_Price": "13800",
+    "Max_Price": "14500",
+    "Modal_Price": "14200"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Perundurai",
+    "Commodity": "Turmeric",
+    "Variety": "Virali",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-19",
+    "Min_Price": "13600",
+    "Max_Price": "14400",
+    "Modal_Price": "14100"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Gobichettipalayam",
+    "Commodity": "Turmeric",
+    "Variety": "விரலி",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-18",
+    "Min_Price": "13500",
+    "Max_Price": "14200",
+    "Modal_Price": "13900"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Erode",
+    "Commodity": "Turmeric",
+    "Variety": "Bulb",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-20",
+    "Min_Price": "12000",
+    "Max_Price": "12800",
+    "Modal_Price": "12500"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Perundurai",
+    "Commodity": "Turmeric",
+    "Variety": "Gatta",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-19",
+    "Min_Price": "11900",
+    "Max_Price": "12600",
+    "Modal_Price": "12300"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Gobichettipalayam",
+    "Commodity": "Turmeric",
+    "Variety": "கிழங்கு",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-18",
+    "Min_Price": "11800",
+    "Max_Price": "12500",
+    "Modal_Price": "12200"
+  }
+]

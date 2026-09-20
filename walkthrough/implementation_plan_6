@@ -1,0 +1,80 @@
+# Phase 6: Production Hardening, Azure Container Apps & Day-2 Operations
+
+## Overview
+Phase 6 packages, hardens, and operationalizes Ulavan Connect for production deployment on Azure Container Apps (ACA). This includes declarative Bicep/YAML deployment templates with Zero-Trust Managed Identity bindings and Key Vault secret references, Application Insights distributed tracing with automated PII redaction, operator replay tooling, scheduled retention cleanup jobs, and comprehensive operational runbooks.
+
+---
+
+## User Review Required
+> [!IMPORTANT]
+> The API Gateway (`uzhavan-gateway`) enforces `minReplicas: 1` to strictly eliminate cold-start webhook latency (< 500ms response SLA). All containers enforce `readOnlyRootFilesystem: true` to guarantee zero local disk writes.
+
+---
+
+## Proposed Changes
+
+### 1. Distributed Telemetry & PII Redaction
+#### [NEW] [`src/platform/telemetry/masking.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/platform/telemetry/masking.py)
+- `mask_phone_number`: Redacts sensitive phone digits (`+919876543210` $\rightarrow$ `+91XXXXXX3210`).
+- `mask_sensitive_dict`: Recursively masks tokens, credentials, phone fields, and converts binary buffers to byte summaries.
+- `PIIMaskingFilter`: Custom logging filter intercepting log records and redacting PII before streaming.
+
+#### [NEW] [`src/platform/telemetry/tracer.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/platform/telemetry/tracer.py)
+- Contextual tracer propagating `correlation_id`, `message_id`, and `provider_message_id`.
+
+---
+
+### 2. Operational Tooling & Maintenance Jobs
+#### [NEW] [`src/tools/replay.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/tools/replay.py)
+- Operator replay utility to re-enqueue messages from `work/dead-letter/` or `events/` back into `inbox/` with audit metadata (`replayed_by`, `reason`).
+
+#### [NEW] [`src/worker/jobs/cleanup.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/jobs/cleanup.py)
+- Retention cleanup job purging expired inbound/outbound audio blobs (> 30 days) and leaked active locks.
+
+---
+
+### 3. Azure Container Apps Deployment Manifests
+#### [NEW] [`deploy/azure/environment.bicep`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/environment.bicep)
+- Declarative Bicep infrastructure: Log Analytics Workspace, ACA Environment, Key Vault, and Storage Account with RBAC role assignments (`Storage Blob Data Contributor`, `Key Vault Secrets User`).
+
+#### [NEW] [`deploy/azure/gateway.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/gateway.yaml)
+- Container App manifest for `uzhavan-gateway`: public HTTPS ingress, `minReplicas: 1`, `maxReplicas: 10`, HTTP concurrency scaling, `/api/v1/health/live` & `/api/v1/health/ready` probes, `readOnlyRootFilesystem: true`, Key Vault secret references.
+
+#### [NEW] [`deploy/azure/worker.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/worker.yaml)
+- Container App manifest for `uzhavan-worker`: internal processing worker, `minReplicas: 1`, `maxReplicas: 5`, `readOnlyRootFilesystem: true`, Key Vault secret references.
+
+#### [NEW] [`deploy/azure/jobs/market-ingestion-job.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/jobs/market-ingestion-job.yaml)
+- Scheduled hourly cron during market hours (06:00–18:00 IST).
+
+#### [NEW] [`deploy/azure/jobs/reconciliation-job.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/jobs/reconciliation-job.yaml)
+- Scheduled cron job running every 15 minutes.
+
+#### [NEW] [`deploy/azure/jobs/cleanup-job.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/jobs/cleanup-job.yaml)
+- Scheduled daily cron job for media retention cleanup.
+
+---
+
+### 4. Operational Documentation
+#### [NEW] [`docs/operations/DEPLOYMENT_AND_REPLAY.md`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/docs/operations/DEPLOYMENT_AND_REPLAY.md)
+- Complete operations runbook: Azure deployment steps, secret management, replay execution guide, and alerting criteria.
+
+---
+
+### 5. Automated Tests
+#### [NEW] [`tests/platform/test_telemetry.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_telemetry.py)
+- Tests correlation ID propagation, phone number masking, and secret redaction.
+
+#### [NEW] [`tests/platform/test_replay_tool.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_replay_tool.py)
+- Tests dead-letter recovery and event replaying into `inbox/` with audit trails.
+
+#### [NEW] [`tests/platform/test_deployment_validation.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_deployment_validation.py)
+- Validates Bicep/YAML manifests for required ACA configurations, probes, security profiles, and scaling rules.
+
+---
+
+## Verification Plan
+Run pytest on all suites:
+```powershell
+pytest
+```
+Assert that all new platform tests pass and all existing 172 tests remain green.

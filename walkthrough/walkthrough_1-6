@@ -1,0 +1,90 @@
+# Ulavan Connect — Full Architecture Migration Walkthrough (Phases 1–6)
+
+## Executive Summary
+Ulavan Connect has completed its full architectural transition from a monolithic prototype into a resilient, event-driven, zero-disk microservice ecosystem on **Azure Container Apps (ACA)**. The entire system is validated by **183 automated tests** passing with 100% green status.
+
+```
+                  ┌─────────────────────────────────────────────────────────┐
+                  │                 Farmer (WhatsApp/Voice)                 │
+                  └────────────┬───────────────────────────────▲────────────┘
+                               │ HTTPS Webhook                 │ Meta/Twilio
+                               ▼                               │ Proactive
+                  ┌─────────────────────────┐                  │ Outbound
+                  │     uzhavan-gateway     │                  │
+                  │   (Stateless Ingress)   │                  │
+                  └────────────┬────────────┘                  │
+                               │ Fast Durability (< 500ms)     │
+                               ▼                               │
+                  ┌─────────────────────────┐                  │
+                  │   Azure Blob Storage    │                  │
+                  │  (events/, inbox/, ...) │                  │
+                  └────────────┬────────────┘                  │
+                               │ 60s Exclusive Lease           │
+                               ▼                               │
+                  ┌─────────────────────────┐                  │
+                  │     uzhavan-worker      │──────────────────┘
+                  │  (Private Orchestrator) │
+                  └─────────────────────────┘
+```
+
+---
+
+## Complete Phase Breakdown & Deliverables
+
+### Phase 1: Canonical Data Contracts & Pure Decision Engine
+- **Data Contracts ([`src/contracts/v1/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/contracts/v1/))**: Immutable, versioned schemas (`events.py`, `intelligence.py`, `market.py`, `decision.py`, `language.py`).
+- **Pure Decision Engine ([`src/decision_engine/engine.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/decision_engine/engine.py))**: Zero-IO domain module with canonical policy thresholds:
+  - $\text{SELL}: \text{offer\_ratio} \ge 0.90$
+  - $\text{NEGOTIATE}: 0.80 \le \text{offer\_ratio} < 0.90$
+  - $\text{HOLD}: \text{offer\_ratio} < 0.80$
+  - $\text{WAIT}$: Evidence Gate failures (stale data, high volatility $> 15\%$, low confidence $< 0.60$).
+- **Gateway Security ([`src/gateway/security/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/security/))**: HMAC verification for Meta (`X-Hub-Signature-256`) and Twilio (`X-Twilio-Signature`).
+
+### Phase 2: Scheduled Mandi Ingestion & Snapshot Store
+- **Storage Layout ([`src/data/storage/blob_repo.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/data/storage/blob_repo.py))**: Standardized Blob paths for raw (`market/raw/`), curated (`market/curated/`), and snapshots (`market/snapshots/`).
+- **Scheduled Ingestion Runner ([`src/data/ingestion/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/data/ingestion/))**: Pulls official mandi data from `data.gov.in` with quarantine routing for anomalies.
+- **Snapshot Publisher & Reader ([`src/data/snapshots/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/data/snapshots/), [`src/data/reader.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/data/reader.py))**: Precomputes rolling 7-day and 30-day metrics, enabling sub-50ms snapshot retrieval during worker execution.
+
+### Phase 3: Asynchronous Gateway & Ingress Durability
+- **Durable Event Store ([`src/platform/storage/event_store.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/platform/storage/event_store.py))**: Writes incoming messages to immutable `events/` and backlog `inbox/`.
+- **FastAPI Ingress Endpoints ([`src/gateway/routes/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/))**: Stateless routes acknowledging Meta and Twilio webhooks in $< 500\text{ms}$.
+- **Rate Limiting & Health Probes ([`src/gateway/middleware/rate_limit.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/middleware/rate_limit.py), [`src/gateway/routes/health.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/health.py))**: Sliding-window rate limiter, `/api/v1/health/live` (liveness), and `/api/v1/health/ready` (storage readiness).
+
+### Phase 4: Private Worker Orchestrator, Multimodal AI & Language/TTS
+- **Work Lease Manager ([`src/worker/lease_manager.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/lease_manager.py))**: Acquires exclusive 60s blob leases on `inbox/` items, manages heartbeat renewals, clean purges, and dead-letter queue routing.
+- **Multimodal Extraction & Validation ([`src/intelligence/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/intelligence/))**: Single-hop extraction via Gemini 3.5 Flash Lite streaming audio directly to/from Blob storage (zero local disk files), paired with deterministic Tamil dialect alias normalization.
+- **Resilient Language Layer & TTS ([`src/language/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/language/))**: Rural-first Tamil phrasing citing mandi dates, Edge TTS streaming MP3 directly to `media/outbound/` with 1-hour SAS URLs and automatic `TEXT_ONLY` fallback.
+- **Worker Pipeline ([`src/worker/pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/pipeline.py))**: Orchestrates extraction, clarification branching, snapshot lookup, pure decision evaluation, and localized response rendering.
+
+### Phase 5: Outbound Delivery, Meta WhatsApp Cloud API & Lifecycle Handlers
+- **Meta WhatsApp Cloud Client ([`src/channels/meta/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/meta/client.py))**: Dual dispatch (text + voice note SAS URL), 24h customer service window template switching, rate-limit backoff, and idempotency headers.
+- **Twilio REST Outbound Client ([`src/channels/twilio/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/twilio/client.py))**: Proactive asynchronous WhatsApp delivery.
+- **Delivery Status Webhooks ([`src/gateway/routes/status.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/status.py))**: Webhooks tracking provider lifecycle transitions (`sent` $\rightarrow$ `delivered` $\rightarrow$ `read` $\rightarrow$ `failed`).
+- **Scheduled Reconciliation Job ([`src/worker/jobs/reconciliation.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/jobs/reconciliation.py))**: Recovers orphaned `inbox/` items (> 10m old) and manages dead-letter routing after 3 retries.
+
+### Phase 6: Production Hardening, Azure Container Apps & Day-2 Operations
+- **Distributed Telemetry & PII Redaction ([`src/platform/telemetry/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/platform/telemetry/))**: Automated masking of farmer phone numbers (`+919876543210` $\rightarrow$ `+91XXXXXX3210`), credential redaction, binary buffer truncation, and correlation ID propagation.
+- **Operator Replay Tooling ([`src/tools/replay.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/tools/replay.py))**: CLI and library to re-enqueue messages from `work/dead-letter/` or `events/` back into `inbox/` with auditable metadata (`replayed_by`, `reason`).
+- **Scheduled Maintenance Jobs ([`src/worker/jobs/cleanup.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/jobs/cleanup.py))**: Nightly cleanup of audio blobs older than 30 days and expired active lease locks.
+- **Declarative ACA Manifests ([`deploy/azure/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/))**: Bicep and YAML templates for ACA Environment, `uzhavan-gateway` (public HTTPS, `minReplicas = 1`, `readOnlyRootFilesystem: true`, probes, HTTP scaling), `uzhavan-worker`, and Container Apps Jobs.
+- **Deployment & Replay Runbook ([`docs/operations/DEPLOYMENT_AND_REPLAY.md`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/docs/operations/DEPLOYMENT_AND_REPLAY.md))**: Complete operational instructions for deployment, RBAC, replay, and alerting.
+
+---
+
+## Test Verification Summary
+
+**183 automated unit, integration, and platform tests passing (100% green)**:
+
+| Test Suite | File / Directory | Tests | Status |
+|---|---|---|---|
+| Platform & Operations | [`tests/platform/test_telemetry.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_telemetry.py)<br>[`tests/platform/test_replay_tool.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_replay_tool.py)<br>[`tests/platform/test_deployment_validation.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/platform/test_deployment_validation.py) | 11 | **PASSED** |
+| Outbound Channels & Status | [`tests/channels/test_meta_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_meta_outbound.py)<br>[`tests/channels/test_twilio_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_twilio_outbound.py)<br>[`tests/channels/test_status_callbacks.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_status_callbacks.py) | 13 | **PASSED** |
+| Worker & Reconciliation | [`tests/worker/test_lease_manager.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_lease_manager.py)<br>[`tests/worker/test_pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_pipeline.py)<br>[`tests/worker/test_reconciliation_job.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_reconciliation_job.py) | 11 | **PASSED** |
+| Multimodal AI & Validation | [`tests/intelligence/test_intelligence_adapter.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/intelligence/test_intelligence_adapter.py) | 20 | **PASSED** |
+| Language & Voice (TTS) | [`tests/language/test_language_tts.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/language/test_language_tts.py) | 8 | **PASSED** |
+| Gateway & Ingress | [`tests/gateway/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/gateway/) | 17 | **PASSED** |
+| Data Layer & Ingestion | [`tests/data/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/data/) | 42 | **PASSED** |
+| Data Contracts | [`tests/contracts/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/contracts/) | 15 | **PASSED** |
+| Pure Decision Engine | [`tests/decision/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/decision/) & [`tests/test_decision_engine.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/test_decision_engine.py) | 27 | **PASSED** |
+| Gateway Security | [`tests/security/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/security/) | 19 | **PASSED** |
+| **Total** | **All 10 Test Suites** | **183** | **100% GREEN** |

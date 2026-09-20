@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📖 Project Documentation
+    url: https://github.com/Build-with-AI-Code-for-Communities/hunger-team-382-ai-fortune/blob/main/README.md
+    about: Read the project overview, setup instructions, and documentation before opening an issue.
+
+  - name: 🏗️ Architecture Proposal
+    url: https://github.com/Build-with-AI-Code-for-Communities/hunger-team-382-ai-fortune/blob/main/PROPOSAL.md
+    about: View the complete architecture proposal and AI workflow.
+
+  - name: 💬 Team Discussion
+    url: https://github.com/Build-with-AI-Code-for-Communities/hunger-team-382-ai-fortune/discussions
+    about: Ask questions, share ideas, or discuss improvements with the team.

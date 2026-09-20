@@ -1,0 +1,39 @@
+apiVersion: 2023-05-01
+kind: ContainerApp
+name: ermozhi-worker
+location: centralindia
+identity:
+  type: SystemAssigned
+properties:
+  managedEnvironmentId: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/${ACA_ENVIRONMENT_NAME}
+  configuration:
+    activeRevisionsMode: Single
+    secrets:
+      - name: gemini-api-key
+        keyVaultUrl: https://${KEY_VAULT_NAME}.vault.azure.net/secrets/gemini-api-key
+        identity: system
+      - name: meta-access-token
+        keyVaultUrl: https://${KEY_VAULT_NAME}.vault.azure.net/secrets/meta-access-token
+        identity: system
+  template:
+    containers:
+      - name: worker
+        image: ${ACR_NAME}.azurecr.io/ermozhi-worker:${IMAGE_TAG}
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: ENVIRONMENT
+            value: "production"
+          - name: STORAGE_ACCOUNT_NAME
+            value: "${STORAGE_ACCOUNT_NAME}"
+          - name: GEMINI_API_KEY
+            secretRef: gemini-api-key
+          - name: META_ACCESS_TOKEN
+            secretRef: meta-access-token
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+    scale:
+      minReplicas: 0
+      maxReplicas: 2

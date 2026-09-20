@@ -1,0 +1,62 @@
+# Phase 5: Outbound Delivery, Meta WhatsApp Cloud API & Lifecycle Handlers
+
+## Overview
+Phase 5 implements the proactive outbound delivery infrastructure, enabling the asynchronous worker (`uzhavan-worker`) to push formatted recommendations and Tamil/English voice notes back to farmers across Meta WhatsApp Cloud API and Twilio REST API. It also introduces customer service window management (24-hour free-form vs. Meta message templates), delivery status callback tracking, and a background reconciliation engine for recovering orphaned `inbox/` items.
+
+---
+
+## Deliverables Completed
+
+### 1. Meta WhatsApp Cloud API Outbound Client ([`src/channels/meta/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/meta/client.py))
+- **`MetaWhatsAppClient`**:
+  - `POST /{phone_number_id}/messages` targeting configured Graph API version with Bearer authentication.
+  - **Dual Dispatch**: Dispatches formatted recommendation text followed by an audio message referencing the SAS URL if available.
+  - **Customer Service Window (24h Rule)**:
+    - $\le 24\text{ hours}$: Dispatches free-form text and audio messages.
+    - $> 24\text{ hours}$: Dispatches approved Meta Message Templates (`price_result_ta`, `clarification_variety_ta`) with typed parameter components.
+  - **Formatting & Idempotency**:
+    - Converts markdown formatting into WhatsApp-native markup (`*bold*`).
+    - Tracks `X-Idempotency-Key` headers and correlation IDs to prevent duplicate message sends.
+  - **Fault Tolerance**:
+    - Automatic exponential backoff with jitter on HTTP 429 rate limits, parsing `Retry-After` response headers.
+    - Classifies permanent 4xx errors as non-retryable with structured error details.
+
+### 2. Twilio REST API Outbound Adapter ([`src/channels/twilio/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/twilio/client.py))
+- **`TwilioOutboundClient`**:
+  - Delivers proactive WhatsApp text and voice SAS URLs via Twilio Messages REST API without relying on synchronous TwiML responses.
+
+### 3. Delivery Status Callback Ingestion ([`src/gateway/routes/status.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/status.py))
+- **Webhook Ingestion Endpoints**:
+  - `POST /api/v1/channels/meta-whatsapp/status`: Ingests Meta status updates (`sent` $\rightarrow$ `delivered` $\rightarrow$ `read` $\rightarrow$ `failed`).
+  - `POST /api/v1/channels/twilio/status`: Ingests Twilio status callbacks (`queued`, `sent`, `delivered`, `failed`, `undelivered`).
+- Appends lifecycle transitions to durable storage under `events/{YYYY}/{MM}/{DD}/{identifier}_status.json`.
+- Registered in [`src/gateway/routes/__init__.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/__init__.py) and mounted in [`src/app.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/app.py).
+
+### 4. Integration into Worker Pipeline ([`src/worker/pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/pipeline.py))
+- **Stage 6 (Proactive Outbound Dispatch)**:
+  - Selects outbound channel adapter (`MetaWhatsAppClient` or `TwilioOutboundClient`) based on `work_item["provider"]`.
+  - Attaches delivery receipt into pipeline result dictionary before completing the lease.
+
+### 5. Scheduled Reconciliation & Recovery Job ([`src/worker/jobs/reconciliation.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/jobs/reconciliation.py))
+- **`ReconciliationJob`**:
+  - Scans `inbox/` for orphaned blobs older than 10 minutes without an active lease.
+  - Re-acquires exclusive 60-second blob leases and re-executes `WorkerPipeline`.
+  - Manages retry counts: if attempt exceeds `max_retries` (3), routes poison messages to `work/dead-letter/{message_id}.json` and purges them from `inbox/`.
+
+---
+
+## Automated Test Verification
+
+**172 automated tests passing with 100% green status** across all suites:
+- [`tests/channels/test_meta_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_meta_outbound.py) (8 tests): Dual dispatch, 24h window template switching, idempotency, retry backoff, and 400 non-retryable handling.
+- [`tests/channels/test_twilio_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_twilio_outbound.py) (3 tests): Outbound text and media URL delivery, error handling, and simulation mode.
+- [`tests/channels/test_status_callbacks.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_status_callbacks.py) (2 tests): Meta and Twilio status callback webhooks and blob persistence.
+- [`tests/worker/test_reconciliation_job.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_reconciliation_job.py) (3 tests): Orphan recovery, fresh item skipping, and dead-letter routing on retry exhaustion.
+- [`tests/worker/test_lease_manager.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_lease_manager.py) & [`tests/worker/test_pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_pipeline.py) (8 tests).
+- [`tests/intelligence/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/intelligence/) (20 tests).
+- [`tests/language/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/language/) (8 tests).
+- [`tests/gateway/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/gateway/) (17 tests).
+- [`tests/data/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/data/) (42 tests).
+- [`tests/contracts/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/contracts/) (15 tests).
+- [`tests/decision/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/decision/) & [`tests/test_decision_engine.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/test_decision_engine.py) (27 tests).
+- [`tests/security/`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/security/) (19 tests).

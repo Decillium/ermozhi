@@ -1,0 +1,50 @@
+[
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Erode",
+    "Commodity": "Turmeric",
+    "Variety": "Finger",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-20",
+    "Min_Price": "13800",
+    "Max_Price": "14500",
+    "Modal_Price": "-500"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Perundurai",
+    "Commodity": "Turmeric",
+    "Variety": "Finger",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-09-19",
+    "Min_Price": "13600",
+    "Max_Price": "14400",
+    "Modal_Price": "invalid_string"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Gobichettipalayam",
+    "Commodity": "Turmeric",
+    "Variety": "Finger",
+    "Grade": "FAQ",
+    "Arrival_Date": "not_a_date",
+    "Min_Price": "13500",
+    "Max_Price": "14200",
+    "Modal_Price": "13900"
+  },
+  {
+    "State": "Tamil Nadu",
+    "District": "Erode",
+    "Market": "Erode",
+    "Commodity": "Turmeric",
+    "Variety": "Finger",
+    "Grade": "FAQ",
+    "Arrival_Date": "2026-02-31",
+    "Min_Price": "13500",
+    "Max_Price": "14200",
+    "Modal_Price": "13900"
+  }
+]

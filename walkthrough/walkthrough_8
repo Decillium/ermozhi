@@ -1,0 +1,51 @@
+# Modernization Walkthrough: Decommission Twilio & Consolidate on Meta WhatsApp Cloud API
+
+## Overview
+All legacy Twilio-specific adapters, routing, signature verification, outbound client dispatchers, test suites, and environment secrets have been removed. The entire Ulavan Connect platform is now standardized exclusively on the **Meta WhatsApp Cloud API (Developer App)**.
+
+---
+
+## 1. Summary of Changes
+
+### A. Deleted Files & Directories
+| Deleted Path | Description |
+| :--- | :--- |
+| `src/channels/twilio/` (`client.py`) | Legacy Twilio REST API outbound message dispatcher |
+| `src/gateway/routes/twilio.py` | Legacy Twilio webhook ingress endpoint |
+| `tests/channels/test_twilio_outbound.py` | Twilio outbound unit test suite |
+| `tests/gateway/test_twilio_webhook.py` | Twilio webhook ingress test suite |
+| `TWILIO_SETUP.md` | Legacy sandbox setup guide |
+
+### B. Updated Codebase & Components
+
+| Component | File Path | Key Changes |
+| :--- | :--- | :--- |
+| **Gateway App & Routes** | [`src/app.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/app.py)<br>[`src/gateway/routes/__init__.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/__init__.py)<br>[`src/gateway/routes/status.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/status.py) | - Removed `twilio_router` and unmounted `/api/v1/channels/twilio/`<br>- Removed `/twilio/status` callback endpoint; retained only `/meta-whatsapp/status`<br>- Removed legacy `/whatsapp` webhook alias and twilio TwiML imports |
+| **Security & Signature** | [`src/gateway/security/signature.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/security/signature.py)<br>[`src/gateway/security/__init__.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/security/__init__.py)<br>[`src/gateway/security/sanitizer.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/security/sanitizer.py) | - Removed `verify_twilio_signature` HMAC-SHA1 verifier<br>- Retained only `verify_meta_signature` (`X-Hub-Signature-256`)<br>- Removed Twilio CDN domains from approved SSRF allowlist (`lookaside.fbsbx.com`, `fbcdn.net`, `whatsapp.net` only) |
+| **Worker Pipeline** | [`src/worker/pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/pipeline.py) | - Removed `TwilioOutboundClient` dependency and parameter<br>- Consolidated outbound Stage 6 dispatch strictly via `MetaWhatsAppClient` |
+| **Canonical Contracts** | [`src/contracts/v1/events.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/contracts/v1/events.py) | - Standardized default message provider strictly to `"meta"` |
+| **Manifests & Config** | [`requirements.txt`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/requirements.txt)<br>[`deploy/azure/gateway.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/gateway.yaml)<br>[`deploy/azure/worker.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/worker.yaml)<br>[`deploy/azure/jobs/reconciliation-job.yaml`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/deploy/azure/jobs/reconciliation-job.yaml) | - Removed `twilio` SDK package from Python requirements<br>- Removed `twilio-auth-token` and `TWILIO_AUTH_TOKEN` from Key Vault and ACA manifests |
+| **Test Suites** | [`tests/security/test_security_filters.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/security/test_security_filters.py)<br>[`tests/gateway/test_deduplication.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/gateway/test_deduplication.py)<br>[`tests/channels/test_status_callbacks.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_status_callbacks.py)<br>[`tests/contracts/test_schemas.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/contracts/test_schemas.py)<br>[`tests/intelligence/test_intelligence_adapter.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/intelligence/test_intelligence_adapter.py) | - Removed all Twilio test cases and fixtures<br>- Updated all mock URLs to Meta CDN domains |
+
+---
+
+## 2. Verification Results
+
+### A. Full Test Suite Execution
+```bash
+python -m pytest -v
+======================= 158 passed, 1 warning in 10.02s =======================
+```
+
+### B. Channel, Gateway & Worker Test Suite Execution
+```bash
+python -m pytest tests/channels/ tests/gateway/ tests/worker/ -v
+======================== 32 passed, 1 warning in 8.72s ========================
+```
+
+### C. Dangling Reference Check
+Executed recursive search across `src/`, `tests/`, `deploy/`, and `requirements.txt`:
+```bash
+grep "twilio" -> 0 matches found
+```
+All production runtime code, contracts, security filters, manifests, and test suites are 100% clean and green.

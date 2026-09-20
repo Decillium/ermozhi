@@ -1,0 +1,94 @@
+# Phase 5: Outbound Delivery, Meta WhatsApp Cloud API & Lifecycle Handlers
+
+## Overview
+Phase 5 implements the outbound messaging layer that proactively delivers recommendations and voice notes back to farmers across Meta WhatsApp Cloud API and Twilio REST API. It introduces customer service window management (24-hour free-form vs. Meta message templates), delivery status callback webhooks (`sent`, `delivered`, `read`, `failed`), worker pipeline Stage 6 integration, and a background reconciliation job for recovering orphaned `inbox/` items.
+
+---
+
+## User Review Required
+> [!NOTE]
+> All outbound network requests to Meta WhatsApp Cloud API and Twilio REST API use asynchronous HTTP clients (`httpx`) with zero local disk writes and deterministic rate-limit / backoff handling.
+
+---
+
+## Proposed Changes
+
+### 1. Meta WhatsApp Cloud API Client
+#### [NEW] [`src/channels/meta/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/meta/client.py)
+- **`MetaWhatsAppClient`**:
+  - `POST https://graph.facebook.com/{graph_version}/{phone_number_id}/messages` with Bearer auth.
+  - **Dual Dispatch**:
+    1. Sends formatted recommendation text message.
+    2. If `LanguageOutput.media_ref` (audio SAS URL) is present, sends an audio message referencing the SAS URL.
+  - **Customer Service Window (24h Rule)**:
+    - If `inbound_timestamp` is within 24 hours $\rightarrow$ sends free-form text & audio messages.
+    - If outside 24-hour window $\rightarrow$ dispatches approved Meta Message Templates (`price_result_ta`, `clarification_variety_ta`) with typed parameters.
+  - **Idempotency & Retries**:
+    - Generates and attaches unique `idempotency_key`.
+    - Handles 429 rate-limiting with `Retry-After` headers and exponential backoff with jitter.
+
+---
+
+### 2. Twilio Outbound REST Adapter
+#### [NEW] [`src/channels/twilio/client.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/channels/twilio/client.py)
+- **`TwilioOutboundClient`**:
+  - Sends proactive outbound WhatsApp messages via Twilio REST API (`POST https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json` or Twilio client).
+  - Delivers text and audio media URLs to farmers asynchronously.
+
+---
+
+### 3. Delivery Status Callback Ingestion
+#### [NEW] [`src/gateway/routes/status.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/status.py)
+- **Status Callback Endpoints**:
+  - `POST /api/v1/channels/meta-whatsapp/status`: Ingests Meta delivery receipts (`sent`, `delivered`, `read`, `failed`).
+  - `POST /api/v1/channels/twilio/status`: Ingests Twilio status webhooks (`MessageStatus`: `queued`, `sent`, `delivered`, `failed`, `undelivered`).
+- Appends status transitions to `events/{YYYY}/{MM}/{DD}/{message_id}_status.json` in Azure Blob Storage.
+- Export router in [`src/gateway/routes/__init__.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/gateway/routes/__init__.py) and mount in [`src/app.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/app.py).
+
+---
+
+### 4. Worker Pipeline Outbound Integration
+#### [MODIFY] [`src/worker/pipeline.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/pipeline.py)
+- Integrate Stage 6 (Outbound Dispatch):
+  - Routes `LanguageOutput` to `MetaWhatsAppClient` or `TwilioOutboundClient` based on `work_item["provider"]`.
+  - Confirms provider acceptance before completing the blob lease.
+
+---
+
+### 5. Scheduled Reconciliation & Recovery Job
+#### [NEW] [`src/worker/jobs/reconciliation.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/src/worker/jobs/reconciliation.py)
+- **`ReconciliationJob`**:
+  - Scans `inbox/` for orphaned work items older than 10 minutes without an active lease.
+  - Attempts re-leasing and re-processing through `WorkerPipeline`.
+  - Tracks retry attempts; if attempts exceed `max_retries` (3), moves the work item to `work/dead-letter/{message_id}.json` with error diagnostics and clears `inbox/`.
+
+---
+
+### 6. Automated Testing Suite
+#### [NEW] [`tests/channels/test_meta_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_meta_outbound.py)
+- Tests dual dispatch (text + audio SAS URL), customer service window template switching (within vs outside 24h), and idempotency.
+
+#### [NEW] [`tests/channels/test_twilio_outbound.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_twilio_outbound.py)
+- Tests Twilio outbound text and audio delivery.
+
+#### [NEW] [`tests/channels/test_status_callbacks.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/channels/test_status_callbacks.py)
+- Tests Meta and Twilio status callback ingestion and durable status persistence in Blob Storage.
+
+#### [NEW] [`tests/worker/test_reconciliation_job.py`](file:///e:/Program%20Files/vs%20code/Decillium_farmerProduct/tests/worker/test_reconciliation_job.py)
+- Tests discovery, re-leasing, retry limits, and dead-letter routing for orphaned `inbox/` items.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+Run pytest across all suites:
+```powershell
+pytest
+```
+Assert that:
+1. `tests/channels/test_meta_outbound.py` passes all test cases.
+2. `tests/channels/test_twilio_outbound.py` passes all test cases.
+3. `tests/channels/test_status_callbacks.py` passes all test cases.
+4. `tests/worker/test_reconciliation_job.py` passes all test cases.
+5. All 156 existing tests across Phases 1-4 continue to pass with 0 regressions.

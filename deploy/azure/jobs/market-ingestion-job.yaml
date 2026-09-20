@@ -1,0 +1,36 @@
+apiVersion: 2023-05-01
+kind: Job
+name: ermozhi-job-market-ingestion
+location: centralindia
+identity:
+  type: SystemAssigned
+properties:
+  environmentId: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/${ACA_ENVIRONMENT_NAME}
+  configuration:
+    triggerType: Schedule
+    scheduleTriggerConfig:
+      cronExpression: "0 6-18/1 * * *"
+    replicaTimeout: 300
+    replicaRetryLimit: 2
+    secrets:
+      - name: data-gov-in-api-key
+        keyVaultUrl: https://${KEY_VAULT_NAME}.vault.azure.net/secrets/data-gov-in-api-key
+        identity: system
+  template:
+    containers:
+      - name: ingestion-runner
+        image: ${ACR_NAME}.azurecr.io/ermozhi-worker:${IMAGE_TAG}
+        command: ["python", "-m", "src.data.ingestion.runner"]
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: ENVIRONMENT
+            value: "production"
+          - name: STORAGE_ACCOUNT_NAME
+            value: "${STORAGE_ACCOUNT_NAME}"
+          - name: DATA_GOV_IN_API_KEY
+            secretRef: data-gov-in-api-key
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false

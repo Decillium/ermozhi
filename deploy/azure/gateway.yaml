@@ -1,0 +1,69 @@
+apiVersion: 2023-05-01
+kind: ContainerApp
+name: ermozhi-gateway
+location: centralindia
+identity:
+  type: SystemAssigned
+properties:
+  managedEnvironmentId: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/${ACA_ENVIRONMENT_NAME}
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 8080
+      transport: auto
+      allowInsecure: false
+      traffic:
+        - latestRevision: true
+          weight: 100
+    secrets:
+      - name: meta-app-secret
+        keyVaultUrl: https://${KEY_VAULT_NAME}.vault.azure.net/secrets/meta-app-secret
+        identity: system
+      - name: meta-verify-token
+        keyVaultUrl: https://${KEY_VAULT_NAME}.vault.azure.net/secrets/meta-verify-token
+        identity: system
+  template:
+    containers:
+      - name: gateway
+        image: ${ACR_NAME}.azurecr.io/ermozhi-gateway:${IMAGE_TAG}
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: PORT
+            value: "8080"
+          - name: ENVIRONMENT
+            value: "production"
+          - name: STORAGE_ACCOUNT_NAME
+            value: "${STORAGE_ACCOUNT_NAME}"
+          - name: META_APP_SECRET
+            secretRef: meta-app-secret
+          - name: META_VERIFY_TOKEN
+            secretRef: meta-verify-token
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /api/v1/health/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          - type: Readiness
+            httpGet:
+              path: /api/v1/health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 2
+    scale:
+      minReplicas: 0
+      maxReplicas: 2
+      rules:
+        - name: http-concurrency-scaling
+          http:
+            metadata:
+              concurrentRequests: "50"
