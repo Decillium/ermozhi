@@ -73,13 +73,10 @@ Follow these steps to run and test the Ermozhi AI pipeline locally on your machi
 
 ---
 
-### Step 1: Clone Repository & Setup Virtual Environment
+## License
 
-```bash
-# Clone repository
-git clone https://github.com/your-org/your-repo.git
-cd "Decillium_farmerProduct"
+Source Code: Apache License 2.0
 
-# Create and activate virtual environment (Windows PowerShell)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+Documentation and educational content:
+CC BY 4.0
+https://creativecommons.org/licenses/by/4.0/
